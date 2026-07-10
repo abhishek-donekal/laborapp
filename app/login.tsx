@@ -1,5 +1,10 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import {
+  ConfirmationResult,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+} from 'firebase/auth';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,14 +17,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Field } from '../src/components';
+import { auth } from '../src/firebase';
 import { useApp } from '../src/store';
 import { colors, font, radius, spacing } from '../src/theme';
-import { Role } from '../src/types';
+
+type Method = 'email' | 'phone';
 
 export default function Login() {
   const {
     usingFirebase,
     signInWithGoogle,
+    signInWithFacebook,
+    signUpWithEmail,
+    signInWithEmail,
     demoLogin,
     user,
     needsRole,
@@ -27,38 +37,92 @@ export default function Login() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<Role>('worker');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string>('');
   const [error, setError] = useState('');
-  const [showDemo, setShowDemo] = useState(!usingFirebase);
+  const [method, setMethod] = useState<Method>('email');
 
-  // Redirect once auth resolves.
+  // Email state
+  const [emailMode, setEmailMode] = useState<'signin' | 'signup'>('signin');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // Phone state
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const confirmRef = useRef<ConfirmationResult | null>(null);
+  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+
+  // Demo fallback
+  const [showDemo, setShowDemo] = useState(!usingFirebase);
+  const [demoName, setDemoName] = useState('');
+
   useEffect(() => {
     if (user) router.replace('/(tabs)');
     else if (needsRole) router.replace('/onboarding');
   }, [user, needsRole]);
 
-  const canSubmit = name.trim().length >= 2;
-
-  async function onGoogle() {
+  async function guard(key: string, fn: () => Promise<void>) {
     setError('');
-    setBusy(true);
+    setBusy(key);
     try {
-      await signInWithGoogle();
-      // Navigation handled by the effect above.
+      await fn();
     } catch (e: any) {
-      setError(e?.message ?? 'Google sign-in failed.');
+      setError(prettyError(e));
     } finally {
-      setBusy(false);
+      setBusy('');
     }
   }
 
-  function onDemo() {
-    if (!canSubmit) return;
-    demoLogin(name, role);
-    router.replace('/(tabs)');
+  function onEmail() {
+    if (emailMode === 'signup') {
+      if (name.trim().length < 2) return setError('Enter your name.');
+      return guard('email', () => signUpWithEmail(name, email, password));
+    }
+    return guard('email', () => signInWithEmail(email, password));
   }
+
+  async function onSendCode() {
+    if (Platform.OS !== 'web' || !auth) {
+      return setError('Phone sign-in is available on the web app.');
+    }
+    setError('');
+    setBusy('phone');
+    try {
+      if (!recaptchaRef.current) {
+        recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+        });
+      }
+      const conf = await signInWithPhoneNumber(
+        auth,
+        phone.trim(),
+        recaptchaRef.current
+      );
+      confirmRef.current = conf;
+      setCodeSent(true);
+    } catch (e: any) {
+      setError(prettyError(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function onVerifyCode() {
+    if (!confirmRef.current) return;
+    setError('');
+    setBusy('phone');
+    try {
+      await confirmRef.current.confirm(code.trim());
+    } catch (e: any) {
+      setError(prettyError(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const emailValid = /\S+@\S+\.\S+/.test(email) && password.length >= 6;
 
   return (
     <KeyboardAvoidingView
@@ -68,7 +132,7 @@ export default function Login() {
       <ScrollView
         contentContainerStyle={[
           styles.container,
-          { paddingTop: insets.top + spacing.xxl },
+          { paddingTop: insets.top + spacing.xl },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -77,138 +141,284 @@ export default function Login() {
             <Text style={styles.logoMark}>🛠️</Text>
           </View>
           <Text style={styles.title}>laborapp</Text>
-          <Text style={styles.subtitle}>
-            Hire day laborers, or find work today.
-          </Text>
+          <Text style={styles.subtitle}>Hire day laborers, or find work.</Text>
         </View>
 
-        <View style={{ gap: spacing.md, marginTop: spacing.xxl }}>
-          {usingFirebase ? (
+        {!usingFirebase ? (
+          <Text style={styles.notice}>
+            Auth backend not configured — demo mode only.
+          </Text>
+        ) : null}
+
+        {usingFirebase ? (
+          <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
+            {/* Social */}
             <Pressable
-              onPress={onGoogle}
-              disabled={busy}
-              style={({ pressed }) => [
-                styles.googleBtn,
-                pressed && { opacity: 0.85 },
-                busy && { opacity: 0.6 },
-              ]}
+              onPress={() => guard('google', signInWithGoogle)}
+              disabled={!!busy}
+              style={({ pressed }) => [styles.social, pressed && { opacity: 0.85 }]}
             >
-              {busy ? (
+              {busy === 'google' ? (
                 <ActivityIndicator color={colors.text} />
               ) : (
                 <>
-                  <GoogleG />
-                  <Text style={styles.googleText}>Continue with Google</Text>
+                  <View style={[styles.socialIcon, { backgroundColor: '#fff' }]}>
+                    <Text style={[styles.socialMark, { color: '#4285F4' }]}>G</Text>
+                  </View>
+                  <Text style={styles.socialText}>Continue with Google</Text>
                 </>
               )}
             </Pressable>
-          ) : (
-            <Text style={styles.notice}>
-              Google sign-in isn't configured yet. Using demo mode — set the
-              Firebase env vars to enable Google login.
-            </Text>
-          )}
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          {usingFirebase ? (
-            <Pressable onPress={() => setShowDemo((s) => !s)}>
-              <Text style={styles.toggleDemo}>
-                {showDemo ? 'Hide demo login' : 'Continue without Google (demo)'}
-              </Text>
+            <Pressable
+              onPress={() => guard('facebook', signInWithFacebook)}
+              disabled={!!busy}
+              style={({ pressed }) => [
+                styles.social,
+                { backgroundColor: '#1877F2', borderColor: '#1877F2' },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              {busy === 'facebook' ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <View style={[styles.socialIcon, { backgroundColor: '#1877F2' }]}>
+                    <Text style={[styles.socialMark, { color: '#fff' }]}>f</Text>
+                  </View>
+                  <Text style={[styles.socialText, { color: '#fff' }]}>
+                    Continue with Facebook
+                  </Text>
+                </>
+              )}
             </Pressable>
-          ) : null}
 
-          {showDemo ? (
-            <View style={styles.demoBox}>
-              <Field
-                label="Your name"
-                placeholder="e.g. Alex Johnson"
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-              />
-              <View style={{ gap: spacing.sm }}>
-                <Text style={styles.roleLabel}>I want to…</Text>
-                <View style={styles.roleRow}>
-                  <RoleOption
-                    active={role === 'worker'}
-                    emoji="👷"
-                    title="Find work"
-                    onPress={() => setRole('worker')}
-                  />
-                  <RoleOption
-                    active={role === 'employer'}
-                    emoji="📋"
-                    title="Hire help"
-                    onPress={() => setRole('employer')}
-                  />
-                </View>
-              </View>
-              <Button label="Continue" onPress={onDemo} disabled={!canSubmit} />
+            <View style={styles.dividerRow}>
+              <View style={styles.line} />
+              <Text style={styles.or}>or</Text>
+              <View style={styles.line} />
             </View>
-          ) : null}
 
-          <Text style={styles.disclaimer}>
-            Demo data stays on this device. Google login syncs your profile.
-          </Text>
-        </View>
+            {/* Method switch */}
+            <View style={styles.segment}>
+              <SegBtn
+                label="Email"
+                active={method === 'email'}
+                onPress={() => setMethod('email')}
+              />
+              <SegBtn
+                label="Phone"
+                active={method === 'phone'}
+                onPress={() => setMethod('phone')}
+              />
+            </View>
+
+            {method === 'email' ? (
+              <View style={{ gap: spacing.md }}>
+                {emailMode === 'signup' ? (
+                  <Field
+                    label="Name"
+                    placeholder="Alex Johnson"
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                  />
+                ) : null}
+                <Field
+                  label="Email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+                <Field
+                  label="Password"
+                  placeholder="At least 6 characters"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                />
+                <Button
+                  label={emailMode === 'signup' ? 'Create account' : 'Log in'}
+                  onPress={onEmail}
+                  loading={busy === 'email'}
+                  disabled={!emailValid}
+                />
+                <Pressable
+                  onPress={() =>
+                    setEmailMode((m) => (m === 'signin' ? 'signup' : 'signin'))
+                  }
+                >
+                  <Text style={styles.switchLink}>
+                    {emailMode === 'signin'
+                      ? "New here? Create an account"
+                      : 'Have an account? Log in'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={{ gap: spacing.md }}>
+                {!codeSent ? (
+                  <>
+                    <Field
+                      label="Phone number"
+                      placeholder="+1 512 555 0123"
+                      value={phone}
+                      onChangeText={setPhone}
+                      keyboardType="phone-pad"
+                    />
+                    <Button
+                      label="Send code"
+                      onPress={onSendCode}
+                      loading={busy === 'phone'}
+                      disabled={phone.trim().length < 8}
+                    />
+                    <Text style={styles.hint}>
+                      Use international format, e.g. +15125550123.
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Field
+                      label="Verification code"
+                      placeholder="6-digit code"
+                      value={code}
+                      onChangeText={setCode}
+                      keyboardType="number-pad"
+                    />
+                    <Button
+                      label="Verify & continue"
+                      onPress={onVerifyCode}
+                      loading={busy === 'phone'}
+                      disabled={code.trim().length < 6}
+                    />
+                    <Pressable onPress={() => setCodeSent(false)}>
+                      <Text style={styles.switchLink}>Change number</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        {/* Demo fallback */}
+        {usingFirebase ? (
+          <Pressable onPress={() => setShowDemo((s) => !s)}>
+            <Text style={styles.demoToggle}>
+              {showDemo ? 'Hide demo login' : 'Skip — try demo without an account'}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {showDemo ? (
+          <View style={styles.demoBox}>
+            <Field
+              label="Your name"
+              placeholder="Alex Johnson"
+              value={demoName}
+              onChangeText={setDemoName}
+              autoCapitalize="words"
+            />
+            <View style={styles.segment}>
+              <SegBtn label="Find work" active onPress={() => {}} />
+            </View>
+            <Text style={styles.hint}>
+              Demo signs you in as a worker on this device only.
+            </Text>
+            <Button
+              label="Enter demo"
+              variant="secondary"
+              onPress={() => {
+                if (demoName.trim().length < 2) return setError('Enter a name.');
+                demoLogin(demoName, 'worker');
+                router.replace('/(tabs)');
+              }}
+            />
+          </View>
+        ) : null}
+
+        {/* Invisible reCAPTCHA host (web only) */}
+        {Platform.OS === 'web' ? (
+          <View nativeID="recaptcha-container" />
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-function GoogleG() {
-  return (
-    <View style={styles.gWrap}>
-      <Text style={styles.gMark}>G</Text>
-    </View>
-  );
-}
-
-function RoleOption({
+function SegBtn({
+  label,
   active,
-  emoji,
-  title,
   onPress,
 }: {
+  label: string;
   active: boolean;
-  emoji: string;
-  title: string;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.role, active && styles.roleActive]}
+      style={[styles.segBtn, active && styles.segBtnActive]}
     >
-      <Text style={styles.roleEmoji}>{emoji}</Text>
-      <Text style={[styles.roleTitle, active && { color: colors.primaryDark }]}>
-        {title}
-      </Text>
+      <Text style={[styles.segText, active && styles.segTextActive]}>{label}</Text>
     </Pressable>
   );
+}
+
+function prettyError(e: any): string {
+  const code = e?.code as string | undefined;
+  const map: Record<string, string> = {
+    'auth/invalid-email': 'That email looks invalid.',
+    'auth/email-already-in-use': 'That email already has an account. Log in instead.',
+    'auth/weak-password': 'Password must be at least 6 characters.',
+    'auth/wrong-password': 'Wrong email or password.',
+    'auth/invalid-credential': 'Wrong email or password.',
+    'auth/user-not-found': 'No account with that email.',
+    'auth/operation-not-allowed':
+      'This sign-in method isn\'t enabled yet in Firebase.',
+    'auth/unauthorized-domain':
+      'This domain isn\'t authorized in Firebase Auth settings.',
+    'auth/invalid-phone-number': 'Enter a valid phone number with country code.',
+    'auth/invalid-verification-code': 'That code is incorrect.',
+    'auth/popup-closed-by-user': 'Sign-in popup was closed.',
+    'auth/popup-blocked': 'Popup blocked — allow popups and retry.',
+  };
+  if (code && map[code]) return map[code];
+  return e?.message?.replace('Firebase: ', '') ?? 'Something went wrong.';
 }
 
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.xxl * 2,
     flexGrow: 1,
+    gap: spacing.sm,
   },
-  logoWrap: { alignItems: 'center', gap: spacing.sm },
+  logoWrap: { alignItems: 'center', gap: spacing.xs },
   logo: {
-    width: 72,
-    height: 72,
+    width: 64,
+    height: 64,
     borderRadius: radius.lg,
     backgroundColor: colors.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoMark: { fontSize: 36 },
+  logoMark: { fontSize: 32 },
   title: { fontSize: font.h1, fontWeight: '800', color: colors.text },
-  subtitle: { fontSize: font.body, color: colors.muted, textAlign: 'center' },
-  googleBtn: {
+  subtitle: { fontSize: font.body, color: colors.muted },
+  notice: {
+    fontSize: font.small,
+    color: colors.warning,
+    backgroundColor: colors.warningTint,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.md,
+  },
+  social: {
     height: 52,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -219,59 +429,83 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.md,
   },
-  gWrap: {
-    width: 22,
-    height: 22,
+  socialIcon: {
+    width: 24,
+    height: 24,
     borderRadius: 4,
-    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  gMark: { fontSize: 18, fontWeight: '800', color: '#4285F4' },
-  googleText: { fontSize: font.body, fontWeight: '700', color: colors.text },
-  notice: {
-    fontSize: font.small,
-    color: colors.warning,
-    backgroundColor: colors.warningTint,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    lineHeight: 19,
+  socialMark: { fontSize: 18, fontWeight: '900' },
+  socialText: { fontSize: font.body, fontWeight: '700', color: colors.text },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginVertical: spacing.xs,
   },
-  error: { fontSize: font.small, color: colors.danger, textAlign: 'center' },
-  toggleDemo: {
+  line: { flex: 1, height: 1, backgroundColor: colors.border },
+  or: { fontSize: font.small, color: colors.muted },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: 4,
+    gap: 4,
+  },
+  segBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+  },
+  segBtnActive: { backgroundColor: colors.bg, ...shadow() },
+  segText: { fontSize: font.small, fontWeight: '700', color: colors.muted },
+  segTextActive: { color: colors.text },
+  switchLink: {
     fontSize: font.small,
     color: colors.primary,
     fontWeight: '700',
     textAlign: 'center',
     paddingVertical: spacing.xs,
   },
+  hint: { fontSize: font.small, color: colors.muted, textAlign: 'center' },
+  error: {
+    fontSize: font.small,
+    color: colors.danger,
+    textAlign: 'center',
+    backgroundColor: colors.dangerTint,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    marginTop: spacing.sm,
+  },
+  demoToggle: {
+    fontSize: font.small,
+    color: colors.muted,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: spacing.md,
+  },
   demoBox: {
-    gap: spacing.lg,
+    gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
     padding: spacing.lg,
     backgroundColor: colors.surface,
-  },
-  roleLabel: { fontSize: font.small, fontWeight: '600', color: colors.muted },
-  roleRow: { flexDirection: 'row', gap: spacing.md },
-  role: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: colors.bg,
-  },
-  roleActive: { borderColor: colors.primary, backgroundColor: colors.primaryTint },
-  roleEmoji: { fontSize: 24 },
-  roleTitle: { fontSize: font.small, fontWeight: '700', color: colors.text },
-  disclaimer: {
-    fontSize: font.small,
-    color: colors.muted,
-    textAlign: 'center',
     marginTop: spacing.sm,
   },
 });
+
+function shadow() {
+  return Platform.select({
+    web: { boxShadow: '0 1px 2px rgba(0,0,0,0.08)' } as object,
+    default: {
+      shadowColor: '#000',
+      shadowOpacity: 0.08,
+      shadowRadius: 2,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: 1,
+    },
+  }) as object;
+}

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Badge, Button, Card, EmptyState, Field } from '../../src/components';
+import { CategoryThumb } from '../../src/CategoryThumb';
 import { formatDate, jobPay, timeAgo } from '../../src/format';
 import { useApp } from '../../src/store';
 import { colors, font, radius, spacing } from '../../src/theme';
@@ -36,18 +37,25 @@ export default function JobDetail() {
       keyboardVerticalOffset={90}
     >
       <Stack.Screen options={{ title: isOwner ? 'Manage Job' : 'Job Details' }} />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Card style={{ gap: spacing.md }}>
-          <View style={styles.topRow}>
+      <ScrollView contentContainerStyle={styles.scroll}>
+        <CategoryThumb category={job.category} height={220} rounded={0}>
+          <View style={styles.heroTop}>
             <Badge label={job.category} tone="primary" />
             <Badge
               label={job.status === 'open' ? 'Open' : 'Closed'}
               tone={job.status === 'open' ? 'success' : 'neutral'}
             />
           </View>
-          <Text style={styles.title}>{job.title}</Text>
-          <Text style={styles.pay}>{jobPay(job)}</Text>
+          <View style={styles.heroBottom}>
+            <Text style={styles.heroTitle}>{job.title}</Text>
+            <View style={styles.payPill}>
+              <Text style={styles.payPillText}>{jobPay(job)}</Text>
+            </View>
+          </View>
+        </CategoryThumb>
 
+        <View style={styles.container}>
+        <Card style={{ gap: spacing.md }}>
           <View style={styles.metaGrid}>
             <Meta icon="📍" label="Location" value={job.location} />
             <Meta icon="📅" label="Date" value={formatDate(job.date)} />
@@ -65,6 +73,7 @@ export default function JobDetail() {
         ) : (
           <WorkerPanel jobId={job.id} jobOpen={job.status === 'open'} />
         )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -235,14 +244,39 @@ function EmployerPanel({ jobId, jobOpen }: { jobId: string; jobOpen: boolean }) 
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
-  container: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl * 2 },
-  topRow: {
+  scroll: { paddingBottom: spacing.xxl * 2 },
+  container: {
+    padding: spacing.lg,
+    gap: spacing.lg,
+    marginTop: -spacing.xl,
+  },
+  heroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    padding: spacing.lg,
   },
-  title: { fontSize: font.h1, fontWeight: '800', color: colors.text },
-  pay: { fontSize: font.h3, fontWeight: '800', color: colors.primaryDark },
+  heroBottom: {
+    marginTop: 'auto',
+    padding: spacing.lg,
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+  },
+  heroTitle: {
+    fontSize: font.h1,
+    fontWeight: '800',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  payPill: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  payPillText: { fontSize: font.body, fontWeight: '800', color: colors.primaryDark },
   metaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

@@ -10,10 +10,13 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithCredential,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signOut as fbSignOut,
+  updateProfile as updateFbProfile,
   type User as FbUser,
 } from 'firebase/auth';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -25,7 +28,7 @@ import {
   User,
 } from './types';
 import { MOCK_JOBS } from './mockData';
-import { auth, db, firebaseEnabled, googleProvider } from './firebase';
+import { auth, db, facebookProvider, firebaseEnabled, googleProvider } from './firebase';
 
 export { firebaseEnabled };
 
@@ -127,7 +130,10 @@ interface Ctx {
   applications: Application[];
 
   signInWithGoogle: () => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
   signInWithGoogleIdToken: (idToken: string) => Promise<void>;
+  signUpWithEmail: (name: string, email: string, password: string) => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   demoLogin: (name: string, role: Role) => void;
   logout: () => void;
   chooseRole: (role: Role) => Promise<void>;
@@ -242,10 +248,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await signInWithPopup(auth, googleProvider);
       },
 
+      signInWithFacebook: async () => {
+        if (!auth) throw new Error('Firebase is not configured.');
+        if (Platform.OS !== 'web') {
+          throw new Error(
+            'Facebook sign-in popup is only wired for web. Use the web app for now.'
+          );
+        }
+        await signInWithPopup(auth, facebookProvider);
+      },
+
       signInWithGoogleIdToken: async (idToken: string) => {
         if (!auth) throw new Error('Firebase is not configured.');
         const cred = GoogleAuthProvider.credential(idToken);
         await signInWithCredential(auth, cred);
+      },
+
+      signUpWithEmail: async (name, email, password) => {
+        if (!auth) throw new Error('Firebase is not configured.');
+        const cred = await createUserWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password
+        );
+        const trimmed = name.trim();
+        if (trimmed) {
+          await updateFbProfile(cred.user, { displayName: trimmed });
+          if (db) {
+            await setDoc(
+              doc(db, 'users', cred.user.uid),
+              { name: trimmed },
+              { merge: true }
+            );
+          }
+        }
+      },
+
+      signInWithEmail: async (email, password) => {
+        if (!auth) throw new Error('Firebase is not configured.');
+        await signInWithEmailAndPassword(auth, email.trim(), password);
       },
 
       demoLogin: (name, role) =>

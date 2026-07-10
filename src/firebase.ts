@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import {
+  FacebookAuthProvider,
   GoogleAuthProvider,
   getAuth,
   initializeAuth,
@@ -49,3 +50,4 @@ if (firebaseEnabled) {
 export const auth = authInstance;
 export const db = dbInstance;
 export const googleProvider = new GoogleAuthProvider();
+export const facebookProvider = new FacebookAuthProvider();
