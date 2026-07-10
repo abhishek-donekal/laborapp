@@ -6,9 +6,9 @@ import { AppProvider, useApp } from '../src/store';
 import { colors } from '../src/theme';
 
 function RootNavigator() {
-  const { hydrated } = useApp();
+  const { ready } = useApp();
 
-  if (!hydrated) {
+  if (!ready) {
     return (
       <View
         style={{
@@ -34,6 +34,7 @@ function RootNavigator() {
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="job/[id]" options={{ title: 'Job' }} />
     </Stack>
