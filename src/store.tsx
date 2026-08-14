@@ -1,232 +1,216 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
-  useReducer,
   useState,
 } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  GoogleAuthProvider,
+  EmailAuthProvider,
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
-  signInWithCredential,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as fbSignOut,
   updateProfile as updateFbProfile,
   type User as FbUser,
 } from 'firebase/auth';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { Application, ApplicationStatus, Job, Role, User } from './types';
 import {
-  Application,
-  ApplicationStatus,
-  Job,
-  Role,
-  User,
-} from './types';
-import { MOCK_JOBS } from './mockData';
-import { auth, db, facebookProvider, firebaseEnabled, googleProvider } from './firebase';
+  ProfileDoc,
+  ReportTarget,
+  createApplication,
+  createJob,
+  deleteJob as deleteJobRemote,
+  purgeUserData,
+  setApplicationStatusRemote,
+  setJobStatus,
+  submitReport,
+  watchApplications,
+  watchJobs,
+  watchProfile,
+  writeProfile,
+} from './data';
+import { auth, facebookProvider, firebaseEnabled, googleProvider } from './firebase';
 
 export { firebaseEnabled };
 
-const STORAGE_KEY = 'laborapp:v1';
+/** Popup OAuth only works in the browser, so those buttons are web-only. */
+export const socialLoginAvailable = firebaseEnabled && Platform.OS === 'web';
 
-// ---- Local (jobs/applications/demo-user) reducer ----------------------------
-
-interface LocalState {
-  demoUser: User | null;
-  jobs: Job[];
-  applications: Application[];
-  hydrated: boolean;
-}
-
-type Action =
-  | { type: 'HYDRATE'; payload: Partial<LocalState> }
-  | { type: 'DEMO_LOGIN'; payload: User }
-  | { type: 'DEMO_LOGOUT' }
-  | { type: 'UPDATE_DEMO_PROFILE'; payload: Partial<User> }
-  | { type: 'ADD_JOB'; payload: Job }
-  | { type: 'CLOSE_JOB'; payload: string }
-  | { type: 'ADD_APPLICATION'; payload: Application }
-  | {
-      type: 'SET_APPLICATION_STATUS';
-      payload: { id: string; status: ApplicationStatus };
-    };
-
-const initialLocal: LocalState = {
-  demoUser: null,
-  jobs: MOCK_JOBS,
-  applications: [],
-  hydrated: false,
-};
-
-function reducer(state: LocalState, action: Action): LocalState {
-  switch (action.type) {
-    case 'HYDRATE':
-      return { ...state, ...action.payload, hydrated: true };
-    case 'DEMO_LOGIN':
-      return { ...state, demoUser: action.payload };
-    case 'DEMO_LOGOUT':
-      return { ...state, demoUser: null };
-    case 'UPDATE_DEMO_PROFILE':
-      return {
-        ...state,
-        demoUser: state.demoUser
-          ? { ...state.demoUser, ...action.payload }
-          : state.demoUser,
-      };
-    case 'ADD_JOB':
-      return { ...state, jobs: [action.payload, ...state.jobs] };
-    case 'CLOSE_JOB':
-      return {
-        ...state,
-        jobs: state.jobs.map((j) =>
-          j.id === action.payload ? { ...j, status: 'closed' } : j
-        ),
-      };
-    case 'ADD_APPLICATION':
-      return { ...state, applications: [action.payload, ...state.applications] };
-    case 'SET_APPLICATION_STATUS':
-      return {
-        ...state,
-        applications: state.applications.map((a) =>
-          a.id === action.payload.id
-            ? { ...a, status: action.payload.status }
-            : a
-        ),
-      };
-    default:
-      return state;
-  }
-}
-
-let idCounter = 0;
-export function makeId(prefix: string): string {
-  idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
-}
-
-// ---- Firestore profile shape ------------------------------------------------
-
-interface Profile {
-  name?: string;
-  role?: Role;
-  phone?: string;
-  bio?: string;
-}
-
-// ---- Context ----------------------------------------------------------------
+const GUEST_KEY = 'hireme:guest';
+const JOBS_CACHE_KEY = 'hireme:jobs-cache';
 
 interface Ctx {
   ready: boolean;
   user: User | null;
-  needsRole: boolean; // signed in with Google but hasn't picked a role
-  pendingName: string; // Google display name awaiting role selection
-  usingFirebase: boolean;
+  /** Signed in but hasn't picked worker/employer yet. */
+  needsRole: boolean;
+  pendingName: string;
+  /** Browsing the job feed without an account. */
+  isGuest: boolean;
+  connected: boolean;
+
   jobs: Job[];
   applications: Application[];
 
-  signInWithGoogle: () => Promise<void>;
-  signInWithFacebook: () => Promise<void>;
-  signInWithGoogleIdToken: (idToken: string) => Promise<void>;
   signUpWithEmail: (name: string, email: string, password: string) => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  demoLogin: (name: string, role: Role) => void;
-  logout: () => void;
-  chooseRole: (role: Role) => Promise<void>;
-  updateProfile: (patch: Partial<User>) => void;
+  signInWithGoogle: () => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  continueAsGuest: () => void;
+  leaveGuest: () => void;
+  logout: () => Promise<void>;
+  chooseRole: (role: Role, name?: string) => Promise<void>;
+  updateProfile: (patch: Partial<User>) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
 
   postJob: (
     input: Omit<Job, 'id' | 'employerId' | 'employerName' | 'status' | 'createdAt'>
-  ) => void;
-  closeJob: (jobId: string) => void;
-  applyToJob: (jobId: string, message: string) => void;
-  setApplicationStatus: (id: string, status: ApplicationStatus) => void;
+  ) => Promise<void>;
+  closeJob: (jobId: string) => Promise<void>;
+  removeJob: (jobId: string) => Promise<void>;
+  applyToJob: (job: Job, message: string) => Promise<void>;
+  setApplicationStatus: (id: string, status: ApplicationStatus) => Promise<void>;
   hasApplied: (jobId: string) => boolean;
+
+  blockUser: (uid: string) => Promise<void>;
+  unblockUser: (uid: string) => Promise<void>;
+  isBlocked: (uid: string) => boolean;
+  reportContent: (input: {
+    targetType: ReportTarget;
+    targetId: string;
+    targetOwnerId: string;
+    reason: string;
+    details?: string;
+  }) => Promise<void>;
 }
 
 const AppContext = createContext<Ctx | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialLocal);
-
   const [authReady, setAuthReady] = useState(!firebaseEnabled);
   const [fbUser, setFbUser] = useState<FbUser | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<ProfileDoc | null>(null);
 
-  // Hydrate persisted local state once.
+  const [guest, setGuest] = useState(false);
+  const [guestReady, setGuestReady] = useState(false);
+
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [connected, setConnected] = useState(false);
+
+  // Restore "browsing as guest" so the feed isn't gated on every cold start.
   useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        const parsed = raw ? (JSON.parse(raw) as Partial<LocalState>) : {};
-        dispatch({ type: 'HYDRATE', payload: parsed });
-      } catch {
-        dispatch({ type: 'HYDRATE', payload: {} });
-      }
-    })();
+    AsyncStorage.getItem(GUEST_KEY)
+      .then((v) => setGuest(v === '1'))
+      .catch(() => {})
+      .finally(() => setGuestReady(true));
   }, []);
 
-  // Persist local state (jobs, applications, demo user) after hydration.
+  // Warm the feed from the last cached copy so the list is never empty offline.
   useEffect(() => {
-    if (!state.hydrated) return;
-    const { demoUser, jobs, applications } = state;
-    AsyncStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ demoUser, jobs, applications })
-    ).catch(() => {});
-  }, [state]);
+    AsyncStorage.getItem(JOBS_CACHE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const cached = JSON.parse(raw) as Job[];
+        setJobs((current) => (current.length ? current : cached));
+      })
+      .catch(() => {});
+  }, []);
 
-  // Subscribe to Firebase auth.
   useEffect(() => {
     if (!firebaseEnabled || !auth) return;
-    const unsub = onAuthStateChanged(auth, (u) => {
+    return onAuthStateChanged(auth, (u) => {
       setFbUser(u);
       setAuthReady(true);
     });
-    return unsub;
   }, []);
 
-  // Subscribe to the signed-in user's Firestore profile doc.
   useEffect(() => {
-    if (!firebaseEnabled || !db || !fbUser) {
+    if (!firebaseEnabled || !fbUser) {
       setProfile(null);
       return;
     }
-    const ref = doc(db, 'users', fbUser.uid);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => setProfile(snap.exists() ? (snap.data() as Profile) : {}),
-      () => setProfile({})
-    );
-    return unsub;
+    return watchProfile(fbUser.uid, setProfile);
   }, [fbUser]);
 
-  // Derive the effective user.
-  const firebaseUser: User | null =
-    fbUser && profile?.role
+  // Public job feed — runs signed in or out.
+  useEffect(() => {
+    if (!firebaseEnabled) return;
+    return watchJobs((next) => {
+      setJobs(next);
+      setConnected(true);
+      AsyncStorage.setItem(
+        JOBS_CACHE_KEY,
+        JSON.stringify(next.slice(0, 60))
+      ).catch(() => {});
+    });
+  }, []);
+
+  const role = profile?.role;
+
+  useEffect(() => {
+    if (!firebaseEnabled || !fbUser || !role) {
+      setApplications([]);
+      return;
+    }
+    return watchApplications(fbUser.uid, role, setApplications);
+  }, [fbUser, role]);
+
+  const blockedUserIds = useMemo(
+    () => profile?.blockedUserIds ?? [],
+    [profile?.blockedUserIds]
+  );
+
+  const user: User | null =
+    fbUser && role
       ? {
           id: fbUser.uid,
-          name: profile.name || fbUser.displayName || 'User',
-          role: profile.role,
+          name: profile?.name || fbUser.displayName || 'HireMe user',
+          role,
           email: fbUser.email || undefined,
           photoURL: fbUser.photoURL || undefined,
-          phone: profile.phone,
-          bio: profile.bio,
+          phone: profile?.phone,
+          bio: profile?.bio,
+          blockedUserIds,
         }
       : null;
 
-  const user = firebaseUser ?? state.demoUser;
-  const needsRole = !!fbUser && !profile?.role;
-  const ready = state.hydrated && authReady;
+  const needsRole = !!fbUser && !!profile && !role;
+  const ready = authReady && guestReady;
+
+  // Anything from a blocked account disappears everywhere in the app.
+  const visibleJobs = useMemo(
+    () => jobs.filter((j) => !blockedUserIds.includes(j.employerId)),
+    [jobs, blockedUserIds]
+  );
+  const visibleApplications = useMemo(
+    () =>
+      applications.filter(
+        (a) =>
+          !blockedUserIds.includes(a.workerId) &&
+          !blockedUserIds.includes(a.employerId)
+      ),
+    [applications, blockedUserIds]
+  );
+
+  const setGuestFlag = useCallback((value: boolean) => {
+    setGuest(value);
+    AsyncStorage.setItem(GUEST_KEY, value ? '1' : '0').catch(() => {});
+  }, []);
 
   const value = useMemo<Ctx>(() => {
-    async function writeProfile(patch: Profile) {
-      if (!db || !fbUser) return;
-      await setDoc(doc(db, 'users', fbUser.uid), patch, { merge: true });
+    function requireUser(): User {
+      if (!user) throw new Error('Sign in to continue.');
+      return user;
     }
 
     return {
@@ -234,128 +218,169 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user,
       needsRole,
       pendingName: fbUser?.displayName ?? '',
-      usingFirebase: firebaseEnabled,
-      jobs: state.jobs,
-      applications: state.applications,
-
-      signInWithGoogle: async () => {
-        if (!auth) throw new Error('Firebase is not configured.');
-        if (Platform.OS !== 'web') {
-          throw new Error(
-            'Google sign-in popup is only wired for web. Use the web app, or add native OAuth in a dev build.'
-          );
-        }
-        await signInWithPopup(auth, googleProvider);
-      },
-
-      signInWithFacebook: async () => {
-        if (!auth) throw new Error('Firebase is not configured.');
-        if (Platform.OS !== 'web') {
-          throw new Error(
-            'Facebook sign-in popup is only wired for web. Use the web app for now.'
-          );
-        }
-        await signInWithPopup(auth, facebookProvider);
-      },
-
-      signInWithGoogleIdToken: async (idToken: string) => {
-        if (!auth) throw new Error('Firebase is not configured.');
-        const cred = GoogleAuthProvider.credential(idToken);
-        await signInWithCredential(auth, cred);
-      },
+      isGuest: guest && !fbUser,
+      connected,
+      jobs: visibleJobs,
+      applications: visibleApplications,
 
       signUpWithEmail: async (name, email, password) => {
-        if (!auth) throw new Error('Firebase is not configured.');
+        if (!auth) throw new Error('Sign-in is unavailable right now.');
+        const trimmed = name.trim();
         const cred = await createUserWithEmailAndPassword(
           auth,
           email.trim(),
           password
         );
-        const trimmed = name.trim();
-        if (trimmed) {
-          await updateFbProfile(cred.user, { displayName: trimmed });
-          if (db) {
-            await setDoc(
-              doc(db, 'users', cred.user.uid),
-              { name: trimmed },
-              { merge: true }
-            );
-          }
-        }
+        if (trimmed) await updateFbProfile(cred.user, { displayName: trimmed });
+        await writeProfile(cred.user.uid, {
+          name: trimmed || 'HireMe user',
+          createdAt: Date.now(),
+        });
+        setGuestFlag(false);
       },
 
       signInWithEmail: async (email, password) => {
-        if (!auth) throw new Error('Firebase is not configured.');
+        if (!auth) throw new Error('Sign-in is unavailable right now.');
         await signInWithEmailAndPassword(auth, email.trim(), password);
+        setGuestFlag(false);
       },
 
-      demoLogin: (name, role) =>
-        dispatch({
-          type: 'DEMO_LOGIN',
-          payload: { id: makeId(role), name: name.trim(), role },
-        }),
-
-      logout: () => {
-        if (auth && fbUser) fbSignOut(auth).catch(() => {});
-        dispatch({ type: 'DEMO_LOGOUT' });
-      },
-
-      chooseRole: async (role) => {
-        if (fbUser) {
-          await writeProfile({
-            role,
-            name: fbUser.displayName || 'User',
-          });
+      signInWithGoogle: async () => {
+        if (!auth || !socialLoginAvailable) {
+          throw new Error('Use your email and password to sign in.');
         }
+        await signInWithPopup(auth, googleProvider);
+        setGuestFlag(false);
       },
 
-      updateProfile: (patch) => {
-        if (fbUser) {
-          writeProfile({ phone: patch.phone, bio: patch.bio }).catch(() => {});
-        } else {
-          dispatch({ type: 'UPDATE_DEMO_PROFILE', payload: patch });
+      signInWithFacebook: async () => {
+        if (!auth || !socialLoginAvailable) {
+          throw new Error('Use your email and password to sign in.');
         }
+        await signInWithPopup(auth, facebookProvider);
+        setGuestFlag(false);
       },
 
-      postJob: (input) => {
-        if (!user) return;
-        dispatch({
-          type: 'ADD_JOB',
-          payload: {
-            ...input,
-            id: makeId('job'),
-            employerId: user.id,
-            employerName: user.name,
-            status: 'open',
-            createdAt: Date.now(),
-          },
+      resetPassword: async (email) => {
+        if (!auth) throw new Error('Sign-in is unavailable right now.');
+        await sendPasswordResetEmail(auth, email.trim());
+      },
+
+      continueAsGuest: () => setGuestFlag(true),
+      leaveGuest: () => setGuestFlag(false),
+
+      logout: async () => {
+        setGuestFlag(false);
+        if (auth && fbUser) await fbSignOut(auth);
+      },
+
+      chooseRole: async (nextRole, name) => {
+        if (!fbUser) throw new Error('Sign in to continue.');
+        await writeProfile(fbUser.uid, {
+          role: nextRole,
+          name: name?.trim() || profile?.name || fbUser.displayName || 'HireMe user',
+          acceptedTermsAt: Date.now(),
         });
       },
-      closeJob: (jobId) => dispatch({ type: 'CLOSE_JOB', payload: jobId }),
-      applyToJob: (jobId, message) => {
-        if (!user) return;
-        dispatch({
-          type: 'ADD_APPLICATION',
-          payload: {
-            id: makeId('app'),
-            jobId,
-            workerId: user.id,
-            workerName: user.name,
-            message: message.trim(),
-            status: 'pending',
-            createdAt: Date.now(),
-          },
+
+      updateProfile: async (patch) => {
+        if (!fbUser) throw new Error('Sign in to continue.');
+        await writeProfile(fbUser.uid, {
+          name: patch.name,
+          phone: patch.phone,
+          bio: patch.bio,
         });
       },
-      setApplicationStatus: (id, status) =>
-        dispatch({ type: 'SET_APPLICATION_STATUS', payload: { id, status } }),
+
+      deleteAccount: async (password) => {
+        if (!auth?.currentUser) throw new Error('Sign in to continue.');
+        const current = auth.currentUser;
+        if (current.email) {
+          const credential = EmailAuthProvider.credential(current.email, password);
+          await reauthenticateWithCredential(current, credential);
+        }
+        await purgeUserData(current.uid);
+        await deleteUser(current);
+        setGuestFlag(false);
+      },
+
+      postJob: async (input) => {
+        const me = requireUser();
+        await createJob({ ...input, employerId: me.id, employerName: me.name });
+      },
+
+      closeJob: (jobId) => setJobStatus(jobId, 'closed'),
+      removeJob: async (jobId) => {
+        const me = requireUser();
+        await deleteJobRemote(jobId, me.id);
+      },
+
+      applyToJob: async (job, message) => {
+        const me = requireUser();
+        await createApplication({
+          jobId: job.id,
+          employerId: job.employerId,
+          workerId: me.id,
+          workerName: me.name,
+          message: message.trim(),
+        });
+      },
+
+      setApplicationStatus: (id, status) => setApplicationStatusRemote(id, status),
+
       hasApplied: (jobId) =>
         !!user &&
-        state.applications.some(
-          (a) => a.jobId === jobId && a.workerId === user.id
-        ),
+        applications.some((a) => a.jobId === jobId && a.workerId === user.id),
+
+      blockUser: async (uid) => {
+        const me = requireUser();
+        if (uid === me.id) return;
+        await writeProfile(me.id, {
+          blockedUserIds: Array.from(new Set([...blockedUserIds, uid])),
+        });
+      },
+
+      unblockUser: async (uid) => {
+        const me = requireUser();
+        await writeProfile(me.id, {
+          blockedUserIds: blockedUserIds.filter((id) => id !== uid),
+        });
+      },
+
+      isBlocked: (uid) => blockedUserIds.includes(uid),
+
+      reportContent: async ({
+        targetType,
+        targetId,
+        targetOwnerId,
+        reason,
+        details,
+      }) => {
+        const me = requireUser();
+        await submitReport({
+          reporterId: me.id,
+          targetType,
+          targetId,
+          targetOwnerId,
+          reason,
+          details,
+        });
+      },
     };
-  }, [ready, user, needsRole, fbUser, state]);
+  }, [
+    ready,
+    user,
+    needsRole,
+    fbUser,
+    profile,
+    guest,
+    connected,
+    visibleJobs,
+    visibleApplications,
+    applications,
+    blockedUserIds,
+    setGuestFlag,
+  ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

@@ -1,0 +1,59 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // A person owns their profile and nobody else can read or change it.
+    match /users/{userId} {
+      allow read, write: if signedIn() && uid() == userId;
+    }
+
+    // The job feed is public so people can browse work before creating
+    // an account. Only the employer who posted a job can change it.
+    match /jobs/{jobId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.employerId == uid()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() >= 3
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 10
+        && request.resource.data.description.size() <= 4000
+        && request.resource.data.payRate is number
+        && request.resource.data.payRate > 0;
+      allow update, delete: if signedIn() && resource.data.employerId == uid();
+    }
+
+    // An application is visible only to the worker who sent it and the
+    // employer who received it.
+    match /applications/{applicationId} {
+      allow read: if signedIn()
+        && (resource.data.workerId == uid() || resource.data.employerId == uid());
+      allow create: if signedIn()
+        && request.resource.data.workerId == uid()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 5
+        && request.resource.data.message.size() <= 2000;
+      // Employers accept or reject; either side can remove their own record.
+      allow update: if signedIn() && resource.data.employerId == uid();
+      allow delete: if signedIn()
+        && (resource.data.workerId == uid() || resource.data.employerId == uid());
+    }
+
+    // Abuse reports are write-only from the app and reviewed in the console.
+    match /reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.reporterId == uid();
+      allow read, update, delete: if false;
+    }
+  }
+}

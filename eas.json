@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "production": {
+      "autoIncrement": true,
+      "//": "Firebase web config is public by design — access is enforced by firestore.rules, not by hiding these values.",
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAbe5SE3aQ6wbp4yv0A6EGGV60XK1SCoqA",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "laborapp-94635.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "laborapp-94635",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "laborapp-94635.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "1087166665088",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:1087166665088:web:9f595c25faef213b3df165"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "vamshidhar.abhishek2@gmail.com",
+        "appleTeamId": "XDMQSSZT7C"
+      }
+    }
+  }
+}

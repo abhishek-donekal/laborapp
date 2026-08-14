@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { ColorValue, Text } from 'react-native';
 import { useApp } from '../../src/store';
 import { colors } from '../../src/theme';
@@ -8,7 +8,13 @@ function TabIcon({ emoji, color }: { emoji: string; color: ColorValue }) {
 }
 
 export default function TabsLayout() {
-  const { user } = useApp();
+  const { user, needsRole, isGuest } = useApp();
+
+  // Guests get the job feed and a profile tab that invites them to join.
+  if (!user && !isGuest) {
+    return <Redirect href={needsRole ? '/onboarding' : '/login'} />;
+  }
+
   const isEmployer = user?.role === 'employer';
 
   return (
@@ -49,14 +55,14 @@ export default function TabsLayout() {
         options={{
           title: 'My Applications',
           tabBarLabel: 'Applied',
-          href: isEmployer ? null : '/(tabs)/applications',
+          href: user && !isEmployer ? '/(tabs)/applications' : null,
           tabBarIcon: ({ color }) => <TabIcon emoji="📨" color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: user ? 'Profile' : 'Join HireMe',
           tabBarLabel: 'Profile',
           tabBarIcon: ({ color }) => <TabIcon emoji="👤" color={color} />,
         }}

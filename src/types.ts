@@ -28,6 +28,7 @@ export interface User {
   phone?: string;
   bio?: string;
   skills?: string[];
+  blockedUserIds?: string[];
 }
 
 export interface Job {
@@ -48,6 +49,8 @@ export interface Job {
 export interface Application {
   id: string;
   jobId: string;
+  /** Denormalised so an employer can query the applications sent to them. */
+  employerId: string;
   workerId: string;
   workerName: string;
   message: string;

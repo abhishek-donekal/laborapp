@@ -37,6 +37,8 @@ function RootNavigator() {
       <Stack.Screen name="onboarding" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="job/[id]" options={{ title: 'Job' }} />
+      <Stack.Screen name="legal/privacy" options={{ title: 'Privacy Policy' }} />
+      <Stack.Screen name="legal/terms" options={{ title: 'Terms of Service' }} />
     </Stack>
   );
 }

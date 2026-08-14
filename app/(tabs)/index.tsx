@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   FlatList,
@@ -14,15 +15,14 @@ import { colors, font, radius, spacing } from '../../src/theme';
 import { CATEGORIES, Category } from '../../src/types';
 
 export default function JobsScreen() {
-  const { user, jobs, applications } = useApp();
-  const isEmployer = user?.role === 'employer';
-
-  if (isEmployer) return <EmployerJobs />;
+  const { user } = useApp();
+  if (user?.role === 'employer') return <EmployerJobs />;
   return <WorkerJobs />;
 }
 
 function WorkerJobs() {
-  const { jobs } = useApp();
+  const { jobs, isGuest } = useApp();
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState<Category | 'All'>('All');
 
@@ -42,6 +42,15 @@ function WorkerJobs() {
 
   return (
     <View style={styles.screen}>
+      {isGuest ? (
+        <Pressable style={styles.guestBar} onPress={() => router.push('/login')}>
+          <Text style={styles.guestBarText}>
+            You're browsing as a guest. Sign in to apply for work.
+          </Text>
+          <Text style={styles.guestBarAction}>Sign in</Text>
+        </Pressable>
+      ) : null}
+
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
@@ -50,6 +59,7 @@ function WorkerJobs() {
           style={styles.search}
           value={query}
           onChangeText={setQuery}
+          accessibilityLabel="Search jobs"
         />
       </View>
 
@@ -119,7 +129,7 @@ function EmployerJobs() {
         ListEmptyComponent={
           <EmptyState
             title="No jobs posted yet"
-            subtitle="Tap the Post tab to hire your first laborer."
+            subtitle="Tap the Post tab to hire your first worker."
           />
         }
       />
@@ -129,6 +139,21 @@ function EmployerJobs() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
+  guestBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    backgroundColor: colors.primaryTint,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  guestBarText: { flex: 1, fontSize: font.small, color: colors.primaryDark },
+  guestBarAction: {
+    fontSize: font.small,
+    fontWeight: '800',
+    color: colors.primaryDark,
+  },
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -142,9 +167,18 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   searchIcon: { fontSize: 16 },
-  search: { flex: 1, paddingVertical: spacing.md, fontSize: font.body, color: colors.text },
+  search: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontSize: font.body,
+    color: colors.text,
+  },
   chips: { flexGrow: 0 },
-  chipsRow: { paddingHorizontal: spacing.lg, gap: spacing.sm, paddingVertical: spacing.md },
+  chipsRow: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,

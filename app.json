@@ -1,18 +1,25 @@
 {
   "expo": {
-    "name": "laborapp",
-    "slug": "laborapp",
+    "name": "HireMe",
+    "slug": "hireme",
+    "owner": "duryo",
     "version": "1.0.0",
-    "scheme": "laborapp",
+    "scheme": "hireme",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.abhishekdonekal.hireme",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.abhishekdonekal.hireme",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFF7ED",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -26,7 +33,16 @@
     },
     "plugins": [
       "expo-router",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ]
     ]
   }
 }

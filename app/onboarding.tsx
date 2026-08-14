@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../src/components';
 import { useApp } from '../src/store';
@@ -13,8 +13,8 @@ export default function Onboarding() {
   const insets = useSafeAreaInsets();
   const [role, setRole] = useState<Role>('worker');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  // Bounce out if we shouldn't be here.
   useEffect(() => {
     if (user) router.replace('/(tabs)');
     else if (!needsRole) router.replace('/login');
@@ -22,17 +22,19 @@ export default function Onboarding() {
 
   async function onContinue() {
     setBusy(true);
+    setError('');
     try {
       await chooseRole(role);
-      // Redirect happens once the profile snapshot updates `user`.
+    } catch {
+      setError('Could not save that. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <View
-      style={[
+    <ScrollView
+      contentContainerStyle={[
         styles.container,
         { paddingTop: insets.top + spacing.xxl },
       ]}
@@ -40,25 +42,29 @@ export default function Onboarding() {
       <Text style={styles.hi}>
         {pendingName ? `Hi ${pendingName.split(' ')[0]} 👋` : 'Welcome 👋'}
       </Text>
-      <Text style={styles.title}>How will you use laborapp?</Text>
-      <Text style={styles.sub}>You can't change this later in the demo.</Text>
+      <Text style={styles.title}>How will you use HireMe?</Text>
+      <Text style={styles.sub}>
+        You can switch between hiring and working any time from your profile.
+      </Text>
 
       <View style={styles.cards}>
         <RoleCard
           active={role === 'worker'}
           emoji="👷"
           title="Find work"
-          sub="Browse jobs and apply to gigs near you."
+          sub="Browse jobs near you and apply to the ones that fit."
           onPress={() => setRole('worker')}
         />
         <RoleCard
           active={role === 'employer'}
           emoji="📋"
           title="Hire help"
-          sub="Post jobs and choose from applicants."
+          sub="Post a job and choose from the people who apply."
           onPress={() => setRole('employer')}
         />
       </View>
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Button
         label="Continue"
@@ -66,7 +72,12 @@ export default function Onboarding() {
         loading={busy}
         style={{ marginTop: spacing.xl }}
       />
-    </View>
+
+      <Text style={styles.legal}>
+        HireMe has no tolerance for abusive users or objectionable job posts.
+        Anything you post can be reported, and reported accounts are removed.
+      </Text>
+    </ScrollView>
   );
 }
 
@@ -86,6 +97,8 @@ function RoleCard({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: active }}
       style={[styles.card, active && styles.cardActive]}
     >
       <Text style={styles.cardEmoji}>{emoji}</Text>
@@ -104,9 +117,10 @@ function RoleCard({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
     backgroundColor: colors.bg,
     paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
   hi: { fontSize: font.h3, color: colors.muted, fontWeight: '600' },
   title: {
@@ -146,5 +160,21 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: radius.pill,
     backgroundColor: colors.primary,
+  },
+  error: {
+    fontSize: font.small,
+    color: colors.danger,
+    backgroundColor: colors.dangerTint,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    marginTop: spacing.lg,
+    textAlign: 'center',
+  },
+  legal: {
+    fontSize: font.tiny,
+    color: colors.muted,
+    lineHeight: 16,
+    textAlign: 'center',
+    marginTop: spacing.xl,
   },
 });
