@@ -43,3 +43,8 @@ yarn-error.*
 /android
 
 .vercel
+
+# signing material
+.secrets/
+credentials.json
+.gstack/

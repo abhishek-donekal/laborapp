@@ -6,7 +6,7 @@
   "build": {
     "production": {
       "autoIncrement": true,
-      "//": "Firebase web config is public by design — access is enforced by firestore.rules, not by hiding these values.",
+      "credentialsSource": "local",
       "env": {
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAbe5SE3aQ6wbp4yv0A6EGGV60XK1SCoqA",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "laborapp-94635.firebaseapp.com",
@@ -21,7 +21,13 @@
     "production": {
       "ios": {
         "appleId": "vamshidhar.abhishek2@gmail.com",
-        "appleTeamId": "XDMQSSZT7C"
+        "appleTeamId": "XDMQSSZT7C",
+        "ascApiKeyPath": "D:/websites/wardrope/.secrets/AuthKey_W3VA7KWZBZ.p8",
+        "ascApiKeyId": "W3VA7KWZBZ",
+        "ascApiKeyIssuerId": "55182fa1-a0a8-4736-bbfd-52cbc5eac86d",
+        "companyName": "Abhishek Donekal",
+        "language": "en-US",
+        "sku": "hireme-2026"
       }
     }
   }
