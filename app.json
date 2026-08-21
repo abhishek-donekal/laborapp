@@ -10,14 +10,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.abhishekdonekal.hireme",
+      "bundleIdentifier": "com.rkdtech.hireme",
       "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.abhishekdonekal.hireme",
+      "package": "com.rkdtech.hireme",
       "adaptiveIcon": {
         "backgroundColor": "#FFF7ED",
         "foregroundImage": "./assets/android-icon-foreground.png",

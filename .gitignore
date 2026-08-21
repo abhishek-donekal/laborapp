@@ -48,3 +48,4 @@ yarn-error.*
 .secrets/
 credentials.json
 .gstack/
+credentials.json*
