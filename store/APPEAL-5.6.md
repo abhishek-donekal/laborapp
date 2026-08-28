@@ -84,11 +84,18 @@ the entire product.
     Email:    appreview@hiremeapp.dev
     Password: HireMe#Review26
 
-The account is a worker by default and holds three applications already sent, one
-accepted, one pending, one rejected. To see the employer side, open Profile and tap
-"Switch to hiring"; the account has two of its own job posts with three applicants
-between them. Report and Block appear beneath the apply panel on any job page and on
-every applicant row. Account deletion is at the bottom of Profile.
+The account starts on the worker side. Because the marketplace is now empty, the quickest
+way to see the whole product is to create the content yourself from this one account:
+
+1. Open Profile and tap "Switch to hiring". The tabs change to My Jobs and Post.
+2. Open Post, fill in the form, tick the content agreement, and tap Post job.
+3. Open Profile and tap "Switch to finding work". Your job is now in the Jobs feed.
+4. Open it, write a message, and tap Send application. The Applied tab shows it as pending.
+5. Switch back to hiring and accept or reject the applicant from the job page.
+
+Report and Block appear beneath the apply panel on any job page and on every applicant
+row. Account deletion is at the bottom of Profile. Tapping "Browse jobs" on the sign-in
+screen shows the public feed without an account.
 
 We are glad to supply a video walkthrough of any flow, or additional accounts, if that
 would help. Please tell us what would be most useful.
